@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulated Annealing Visualization</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #eaeaea;
+            margin: 0;
+            padding: 0;
+            text-align: center;
+        }
+
+        h1 {
+            color: #2d3e50;
+            margin-top: 20px;
+            font-size: 2.5em;
+        }
+
+        svg {
+            background-color: #fff;
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+            margin: 30px auto;
+            display: block;
+        }
+
+        .controls {
+            margin-top: 30px;
+            padding-bottom: 30px;
+        }
+
+        button {
+            padding: 12px 24px;
+            margin: 10px;
+            border-radius: 8px;
+            background-color: #4CAF50;
+            color: white;
+            font-size: 16px;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        button:disabled {
+            background-color: #bdbdbd;
+            cursor: not-allowed;
+        }
+
+        .info {
+            margin-top: 20px;
+            font-size: 18px;
+            color: #333;
+            font-weight: 600;
+        }
+
+        .axis-labels {
+            font-size: 14px;
+            font-weight: bold;
+            fill: #333;
+        }
+
+        .axis {
+            font-size: 14px;
+            fill: #666;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Simulated Annealing Simulation</h1>
+    <svg id="chart" width="800" height="500"></svg>
+    <div class="controls">
+        <button id="startButton">Start</button>
+        <button id="pauseButton" disabled>Pause</button>
+        <button id="resumeButton" disabled>Resume</button>
+    </div>
+    <div class="info" id="infoText"></div>
+
+    <script>
+        // Objective function
+        function f(x) {
+            return Math.pow(x, 4) - 3 * Math.pow(x, 3) + 2;
+        }
+
+        // Parameters
+        const T_INITIAL = 10;
+        const COOLING_RATE = 0.95;
+        const NUM_ITERATIONS = 200;
+        const DELAY_MS = 400; // Delay between iterations in milliseconds
+
+        // Define the x range and calculate f(x)
+        const xRange = d3.range(-2, 3, 0.01);
+        const data = xRange.map(x => ({ x, y: f(x) }));
+
+        // Simulated Annealing class
+        class SimulatedAnnealing {
+            constructor() {
+                this.x = Math.random() * (2 - -2) + -2; // Random initial solution
+                this.T = T_INITIAL;
+                this.history = [];
+            }
+
+            step() {
+                if (this.T > 0) {
+                    const xNew = this.x + (Math.random() * 2 - 1); // Generate new solution
+                    const deltaE = f(xNew) - f(this.x);
+
+                    if (deltaE < 0 || Math.random() < Math.exp(-deltaE / this.T)) {
+                        this.x = xNew; // Accept new solution
+                    }
+
+                    this.history.push({ x: this.x, y: f(this.x), T: this.T });
+                    this.T *= COOLING_RATE; // Cool down
+                }
+            }
+        }
+
+        // Initialize the simulation
+        const sa = new SimulatedAnnealing();
+
+        // Set up the SVG chart
+        const svg = d3.select("#chart");
+        const margin = { top: 20, right: 20, bottom: 60, left: 60 };
+        const width = +svg.attr("width") - margin.left - margin.right;
+        const height = +svg.attr("height") - margin.top - margin.bottom;
+
+        const chart = svg.append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        // Set up scales
+        const xScale = d3.scaleLinear().domain([-2, 3]).range([0, width]);
+        const yScale = d3.scaleLinear().domain([d3.min(data, d => d.y), d3.max(data, d => d.y)]).range([height, 0]);
+
+        // Add axes
+        chart.append("g")
+            .attr("transform", `translate(0,${height})`)
+            .call(d3.axisBottom(xScale).ticks(10))
+            .selectAll(".tick text")
+            .style("font-size", "14px");
+        
+        chart.append("g")
+            .call(d3.axisLeft(yScale).ticks(10))
+            .selectAll(".tick text")
+            .style("font-size", "14px");
+
+        // Add axis labels
+        chart.append("text")
+            .attr("class", "axis-labels")
+            .attr("x", width / 2)
+            .attr("y", height + 40)
+            .attr("text-anchor", "middle")
+            .text("X (Input Variable)");
+
+        chart.append("text")
+            .attr("class", "axis-labels")
+            .attr("transform", "rotate(-90)")
+            .attr("x", -height / 2)
+            .attr("y", -40)
+            .attr("text-anchor", "middle")
+            .text("f(x) (Objective Function Value)");
+
+        // Plot the objective function
+        chart.append("path")
+            .datum(data)
+            .attr("fill", "none")
+            .attr("stroke", "steelblue")
+            .attr("stroke-width", 2)
+            .attr("d", d3.line()
+                .x(d => xScale(d.x))
+                .y(d => yScale(d.y))
+            );
+
+        // Add a circle to represent the current solution
+        const currentSolution = chart.append("circle")
+            .attr("r", 6)
+            .attr("fill", "red");
+
+        // Animation variables
+        let step = 0;
+        let animationTimeout;
+        let isPaused = false;
+
+        function update() {
+            if (step >= NUM_ITERATIONS || isPaused) return;
+
+            sa.step();
+            const { x, y, T } = sa.history[sa.history.length - 1];
+
+            // Update circle position
+            currentSolution
+                .attr("cx", xScale(x))
+                .attr("cy", yScale(y));
+
+            // Update info text: iteration count and temperature
+            document.getElementById("infoText").innerHTML =
+                `Iteration: ${step + 1} / ${NUM_ITERATIONS}, ` +
+                `Temperature: ${T.toFixed(2)}, ` +
+                `Current x: ${x.toFixed(2)}, ` +
+                `f(x): ${y.toFixed(2)}`;
+
+            step++;
+            animationTimeout = setTimeout(update, DELAY_MS);
+        }
+
+        document.getElementById("startButton").onclick = () => {
+            step = 0;
+            isPaused = false;
+            document.getElementById("pauseButton").disabled = false;
+            document.getElementById("startButton").disabled = true;
+            update();
+        };
+
+        document.getElementById("pauseButton").onclick = () => {
+            isPaused = true;
+            clearTimeout(animationTimeout);
+            document.getElementById("resumeButton").disabled = false;
+            document.getElementById("pauseButton").disabled = true;
+        };
+
+        document.getElementById("resumeButton").onclick = () => {
+            isPaused = false;
+            document.getElementById("resumeButton").disabled = true;
+            document.getElementById("pauseButton").disabled = false;
+            update();
+        };
+    </script>
+</body>
+
+</html>
